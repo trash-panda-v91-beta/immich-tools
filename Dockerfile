@@ -1,0 +1,13 @@
+FROM rust:1.87-alpine AS builder
+
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+
+RUN cargo build --release
+
+FROM scratch
+COPY --from=builder /build/target/release/immich-tools /immich-tools
+ENTRYPOINT ["/immich-tools"]

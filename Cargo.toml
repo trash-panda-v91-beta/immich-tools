@@ -1,6 +1,28 @@
 [package]
 name = "immich-tools"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[[bin]]
+name = "immich-tools"
+path = "src/main.rs"
 
 [dependencies]
+anyhow = "1"
+chrono = "0.4"
+mime_guess = "2"
+clap = { version = "4", features = ["derive", "env"] }
+notify = "8"
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
