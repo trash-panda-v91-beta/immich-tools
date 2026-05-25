@@ -686,6 +686,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "futures-util",
  "mime_guess",
  "notify",
  "reqwest",

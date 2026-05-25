@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use futures_util::TryStreamExt;
 use reqwest::{
     multipart::{Form, Part},
     Client, StatusCode,
@@ -6,6 +7,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tokio::fs;
+use tokio_util::io::StreamReader;
 
 #[derive(Clone)]
 pub struct ImmichClient {
@@ -76,8 +78,11 @@ impl ImmichClient {
             .context("download returned error status")?;
 
         let tmp = dest.with_extension("tmp");
-        let bytes = resp.bytes().await.context("failed to read download body")?;
-        fs::write(&tmp, &bytes).await.context("failed to write tmp file")?;
+        let stream = resp.bytes_stream().map_err(std::io::Error::other);
+        let mut reader = StreamReader::new(stream);
+        let mut file = fs::File::create(&tmp).await.context("failed to create tmp file")?;
+        tokio::io::copy(&mut reader, &mut file).await.context("failed to stream download to file")?;
+        drop(file);
         fs::rename(&tmp, dest).await.context("failed to rename tmp to dest")?;
         Ok(())
     }

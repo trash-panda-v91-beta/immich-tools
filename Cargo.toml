@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+futures-util = "0.3"
 chrono = "0.4"
 mime_guess = "2"
 clap = { version = "4", features = ["derive", "env"] }
