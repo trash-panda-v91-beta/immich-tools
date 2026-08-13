@@ -94,15 +94,25 @@ impl ImmichClient {
             .context("path has no filename")?
             .to_string_lossy()
             .to_string();
-
         let bytes = fs::read(path).await.context("failed to read file for upload")?;
-        let mime = mime_guess::from_path(path).first_or_octet_stream().to_string();
+        self.upload_asset_bytes(&filename, &filename, bytes).await
+    }
+
+    /// Upload in-memory bytes. dedup_key must be unique per asset within this device
+    /// (e.g. the source file id), so separate sources don't collide on bare filenames.
+    pub async fn upload_asset_bytes(
+        &self,
+        filename: &str,
+        dedup_key: &str,
+        bytes: Vec<u8>,
+    ) -> Result<Option<String>> {
+        let mime = mime_guess::from_path(filename).first_or_octet_stream().to_string();
 
         let part = Part::bytes(bytes)
-            .file_name(filename.clone())
+            .file_name(filename.to_string())
             .mime_str(&mime)?;
         let form = Form::new()
-            .text("deviceAssetId", filename.clone())
+            .text("deviceAssetId", dedup_key.to_string())
             .text("deviceId", "immich-tools-watcher")
             .text("fileCreatedAt", chrono::Utc::now().to_rfc3339())
             .text("fileModifiedAt", chrono::Utc::now().to_rfc3339())

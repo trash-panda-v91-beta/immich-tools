@@ -1,5 +1,6 @@
 mod client;
 mod sync_favorites;
+mod sync_pcloud;
 mod watch_upload;
 
 use anyhow::Result;
@@ -17,6 +18,8 @@ struct Cli {
 enum Command {
     /// Download all favorited assets from Immich to a local directory
     SyncFavorites(sync_favorites::SyncArgs),
+    /// Upload files from pCloud High-Res folders to Immich
+    SyncPcloud(sync_pcloud::PCloudArgs),
     /// Watch a directory and upload new files to Immich
     WatchUpload(watch_upload::WatchArgs),
 }
@@ -30,6 +33,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::SyncFavorites(args) => sync_favorites::run(args).await,
+        Command::SyncPcloud(args) => sync_pcloud::run(args).await,
         Command::WatchUpload(args) => watch_upload::run(args).await,
     }
 }
