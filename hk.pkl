@@ -1,0 +1,31 @@
+amends "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl"
+
+import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtins.pkl"
+
+local linters = new Mapping<String, Step> {
+  ["check-merge-conflict"] = Builtins.check_merge_conflict
+  ["detect-private-key"] = Builtins.detect_private_key
+  ["actionlint"] = Builtins.actionlint
+  ["yamllint"] = Builtins.yamllint
+  ["yamlfmt"] = Builtins.yamlfmt
+  ["pkl"] = Builtins.pkl
+  ["pkl-format"] = Builtins.pkl_format
+  ["cargo-fmt"] = Builtins.cargo_fmt
+  ["cargo-clippy"] = Builtins.cargo_clippy
+}
+
+hooks {
+  ["check"] {
+    fix = false
+    steps = linters
+  }
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+}

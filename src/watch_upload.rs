@@ -46,7 +46,13 @@ pub async fn run(args: WatchArgs) -> Result<()> {
         };
 
         // Only act on file creation/moves-into
-        if !matches!(event.kind, EventKind::Create(_) | EventKind::Modify(notify::event::ModifyKind::Name(notify::event::RenameMode::To))) {
+        if !matches!(
+            event.kind,
+            EventKind::Create(_)
+                | EventKind::Modify(notify::event::ModifyKind::Name(
+                    notify::event::RenameMode::To
+                ))
+        ) {
             continue;
         }
 

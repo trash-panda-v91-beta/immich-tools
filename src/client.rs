@@ -48,11 +48,19 @@ impl ImmichClient {
         let client = Client::builder()
             .build()
             .context("failed to build HTTP client")?;
-        Ok(Self { client, base_url, api_key })
+        Ok(Self {
+            client,
+            base_url,
+            api_key,
+        })
     }
 
     pub async fn search_favorites(&self, page: u32) -> Result<SearchResults> {
-        let body = SearchRequest { is_favorite: true, size: 1000, page };
+        let body = SearchRequest {
+            is_favorite: true,
+            size: 1000,
+            page,
+        };
         let resp = self
             .client
             .post(format!("{}/api/search/metadata", self.base_url))
@@ -63,7 +71,9 @@ impl ImmichClient {
             .context("search request failed")?
             .error_for_status()
             .context("search returned error status")?;
-        resp.json().await.context("failed to deserialize search response")
+        resp.json()
+            .await
+            .context("failed to deserialize search response")
     }
 
     pub async fn download_asset(&self, id: &str, dest: &Path) -> Result<()> {
@@ -80,10 +90,16 @@ impl ImmichClient {
         let tmp = dest.with_extension("tmp");
         let stream = resp.bytes_stream().map_err(std::io::Error::other);
         let mut reader = StreamReader::new(stream);
-        let mut file = fs::File::create(&tmp).await.context("failed to create tmp file")?;
-        tokio::io::copy(&mut reader, &mut file).await.context("failed to stream download to file")?;
+        let mut file = fs::File::create(&tmp)
+            .await
+            .context("failed to create tmp file")?;
+        tokio::io::copy(&mut reader, &mut file)
+            .await
+            .context("failed to stream download to file")?;
         drop(file);
-        fs::rename(&tmp, dest).await.context("failed to rename tmp to dest")?;
+        fs::rename(&tmp, dest)
+            .await
+            .context("failed to rename tmp to dest")?;
         Ok(())
     }
 
@@ -94,7 +110,9 @@ impl ImmichClient {
             .context("path has no filename")?
             .to_string_lossy()
             .to_string();
-        let bytes = fs::read(path).await.context("failed to read file for upload")?;
+        let bytes = fs::read(path)
+            .await
+            .context("failed to read file for upload")?;
         self.upload_asset_bytes(&filename, &filename, bytes).await
     }
 
@@ -106,7 +124,9 @@ impl ImmichClient {
         dedup_key: &str,
         bytes: Vec<u8>,
     ) -> Result<Option<String>> {
-        let mime = mime_guess::from_path(filename).first_or_octet_stream().to_string();
+        let mime = mime_guess::from_path(filename)
+            .first_or_octet_stream()
+            .to_string();
 
         let part = Part::bytes(bytes)
             .file_name(filename.to_string())
@@ -131,9 +151,16 @@ impl ImmichClient {
             // 200 means duplicate
             return Ok(None);
         }
-        resp.error_for_status_ref().context("upload returned error status")?;
-        let body: serde_json::Value = resp.json().await.context("failed to deserialize upload response")?;
-        let id = body["id"].as_str().context("upload response missing id")?.to_string();
+        resp.error_for_status_ref()
+            .context("upload returned error status")?;
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .context("failed to deserialize upload response")?;
+        let id = body["id"]
+            .as_str()
+            .context("upload response missing id")?
+            .to_string();
         Ok(Some(id))
     }
 }

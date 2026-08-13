@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Auto Approve
+
+on:
+  pull_request_target:
+    types:
+      - labeled
+      - opened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  auto-approve:
+    name: Auto Approve
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'approve/trashbot-9000')
+    steps:
+      - name: Generate Token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ vars.TRASHBOT_APP_ID }}
+          private-key: ${{ secrets.TRASHBOT_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      - name: Approve PR (gh)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |-
+          gh api \
+            --method POST \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+            -f event=APPROVE \
+            -f body="Auto-approved by trashbot-9000."

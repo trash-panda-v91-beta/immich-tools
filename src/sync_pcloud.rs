@@ -21,6 +21,10 @@ pub struct PCloudArgs {
     #[arg(long, env = "PCLOUD_TOKEN")]
     token: String,
 
+    /// pCloud API host - api.pcloud.com (US) or eapi.pcloud.com (Europe)
+    #[arg(long, env = "PCLOUD_HOST", default_value = "api.pcloud.com")]
+    host: String,
+
     /// Path to config.toml listing base folders to scan
     #[arg(long, env = "CONFIG")]
     config: std::path::PathBuf,
@@ -72,22 +76,22 @@ struct FileRef {
 struct PCloud {
     http: HttpClient,
     token: String,
+    host: String,
 }
 
 impl PCloud {
-    fn new(token: String) -> Result<Self> {
-        let http = HttpClient::builder().build().context("failed to build pCloud client")?;
-        Ok(Self { http, token })
+    fn new(token: String, host: String) -> Result<Self> {
+        let http = HttpClient::builder()
+            .build()
+            .context("failed to build pCloud client")?;
+        Ok(Self { http, token, host })
     }
-
-
 
     async fn list_folder(&self, path: &str) -> Result<Metadata> {
         let resp: ListFolder = self
             .http
-            .get("https://api.pcloud.com/listfolder")
-            .query(&[("path", path)])
-            .bearer_auth(&self.token)
+            .get(format!("https://{}/listfolder", self.host))
+            .query(&[("path", path), ("access_token", &self.token)])
             .send()
             .await
             .context("listfolder request failed")?
@@ -96,15 +100,15 @@ impl PCloud {
             .json()
             .await
             .context("failed to parse listfolder response")?;
-        resp.metadata.with_context(|| format!("listfolder failed (result {})", resp.result))
+        resp.metadata
+            .with_context(|| format!("listfolder failed (result {})", resp.result))
     }
 
     async fn download_bytes(&self, id: i64) -> Result<Vec<u8>> {
         let link: FileLink = self
             .http
-            .get("https://api.pcloud.com/getfilelink")
-            .query(&[("fileid", id.to_string())])
-            .bearer_auth(&self.token)
+            .get(format!("https://{}/getfilelink", self.host))
+            .query(&[("fileid", id.to_string()), ("access_token", self.token.clone())])
             .send()
             .await
             .context("getfilelink request failed")?
@@ -113,7 +117,10 @@ impl PCloud {
             .json()
             .await
             .context("failed to parse getfilelink response")?;
-        let host = link.hosts.first().context("getfilelink returned no hosts")?;
+        let host = link
+            .hosts
+            .first()
+            .context("getfilelink returned no hosts")?;
         let url = format!("https://{host}{}", link.path);
         self.http
             .get(url)
@@ -146,8 +153,14 @@ struct FileEntry {
 fn collect_files(folder: &Metadata, out: &mut Vec<FileRef>) {
     for file in &folder.contents {
         if !file.isfolder {
-            if let (Some(id), Some(name), Some(hash)) = (file.fileid, file.name.clone(), file.hash) {
-                out.push(FileRef { id, name, hash, size: file.size.unwrap_or(0) });
+            if let (Some(id), Some(name), Some(hash)) = (file.fileid, file.name.clone(), file.hash)
+            {
+                out.push(FileRef {
+                    id,
+                    name,
+                    hash,
+                    size: file.size.unwrap_or(0),
+                });
             }
         }
     }
@@ -156,13 +169,19 @@ fn collect_files(folder: &Metadata, out: &mut Vec<FileRef>) {
 /// Map a pCloud path to a safe on-disk state filename.
 fn sanitize(path: &str) -> String {
     path.chars()
-        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 pub async fn run(args: PCloudArgs) -> Result<()> {
     let immich = ImmichClient::new(args.url, args.api_key)?;
-    let pcloud = PCloud::new(args.token)?;
+    let pcloud = PCloud::new(args.token.clone(), args.host.clone())?;
     let state = args.state_dir.clone();
     std::fs::create_dir_all(&state).context("failed to create state dir")?;
 
