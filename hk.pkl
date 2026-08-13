@@ -1,5 +1,6 @@
 amends "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl"
 
+import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl" as Config
 import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtins.pkl"
 
 local linters = new Mapping<String, Step> {
