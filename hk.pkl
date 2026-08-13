@@ -1,7 +1,7 @@
 amends "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl"
 
-import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl" as Config
 import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtins.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl" as Config
 
 local linters = new Mapping<String, Step> {
   ["check-merge-conflict"] = Builtins.check_merge_conflict
