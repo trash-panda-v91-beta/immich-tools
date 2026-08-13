@@ -91,7 +91,7 @@ impl PCloud {
         let resp: ListFolder = self
             .http
             .get(format!("https://{}/listfolder", self.host))
-            .query(&[("path", path), ("access_token", &self.token)])
+            .query(&[("path", path), ("auth", &self.token)])
             .send()
             .await
             .context("listfolder request failed")?
@@ -108,7 +108,10 @@ impl PCloud {
         let link: FileLink = self
             .http
             .get(format!("https://{}/getfilelink", self.host))
-            .query(&[("fileid", id.to_string()), ("access_token", self.token.clone())])
+            .query(&[
+                ("fileid", id.to_string()),
+                ("auth", self.token.clone()),
+            ])
             .send()
             .await
             .context("getfilelink request failed")?
