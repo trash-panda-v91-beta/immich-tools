@@ -1,6 +1,7 @@
 amends "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl"
 
 import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtins.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl" as Config
 
 local linters = new Mapping<String, Step> {
   ["check-merge-conflict"] = Builtins.check_merge_conflict
@@ -10,8 +11,24 @@ local linters = new Mapping<String, Step> {
   ["yamlfmt"] = Builtins.yamlfmt
   ["pkl"] = Builtins.pkl
   ["pkl-format"] = Builtins.pkl_format
-  ["cargo-fmt"] = Builtins.cargo_fmt
-  ["cargo-clippy"] = Builtins.cargo_clippy
+  ["cargo-fmt"] = new Config.Step {
+    glob = "**/*.rs"
+    workspace_indicator = "Cargo.toml"
+    check = "cargo fmt --check --manifest-path {{workspace_indicator}}"
+    fix = "cargo fmt --manifest-path {{workspace_indicator}}"
+    exclusive = true
+  }
+  ["cargo-clippy"] = new Config.Step {
+    glob = "**/*.rs"
+    workspace_indicator = "Cargo.toml"
+    check = "cargo clippy --manifest-path {{workspace_indicator}} --quiet"
+    fix =
+      "cargo clippy --manifest-path {{workspace_indicator}} --fix --allow-dirty --allow-staged --quiet"
+    exclusive = true
+    env {
+      ["CARGO_TERM_PROGRESS_WHEN"] = "never"
+    }
+  }
 }
 
 hooks {

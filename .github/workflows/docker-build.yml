@@ -106,6 +106,14 @@ jobs:
       - name: Create and push manifest
         working-directory: /tmp/digests
         run: |-
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/${{ github.repository_owner }}/immich-tools@sha256:%s ' *)
+          tags=()
+          while IFS= read -r tag; do
+            tags+=(-t "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+
+          digests=()
+          for f in *; do
+            digests+=("ghcr.io/${{ github.repository_owner }}/immich-tools@sha256:${f}")
+          done
+
+          docker buildx imagetools create "${tags[@]}" "${digests[@]}"
