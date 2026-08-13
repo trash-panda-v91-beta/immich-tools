@@ -108,7 +108,10 @@ impl PCloud {
         let link: FileLink = self
             .http
             .get(format!("https://{}/getfilelink", self.host))
-            .query(&[("fileid", id.to_string()), ("access_token", self.token.clone())])
+            .query(&[
+                ("fileid", id.to_string()),
+                ("access_token", self.token.clone()),
+            ])
             .send()
             .await
             .context("getfilelink request failed")?
