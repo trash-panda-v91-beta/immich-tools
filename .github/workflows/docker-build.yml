@@ -6,6 +6,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -102,6 +104,8 @@ jobs:
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - name: Create and push manifest
         working-directory: /tmp/digests
