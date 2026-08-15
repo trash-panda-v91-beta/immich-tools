@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   code-quality:
-    name: code-quality
+    name: Code Quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,7 +32,7 @@ jobs:
         run: mise run check
 
   tests:
-    name: tests
+    name: Run Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
