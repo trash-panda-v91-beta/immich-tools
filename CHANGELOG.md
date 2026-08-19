@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.3...v0.2.4) (2026-08-19)
+
+
+### Bug Fixes
+
+* **pcloud:** parse u64 file ids and hashes ([#44](https://github.com/trash-panda-v91-beta/immich-tools/issues/44)) ([7c8d443](https://github.com/trash-panda-v91-beta/immich-tools/commit/7c8d44341c5b6f79dddeeb7e27849cef0d5cab1a))
+
 ## [0.2.3](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.2...v0.2.3) (2026-08-19)
 
 
