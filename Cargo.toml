@@ -15,7 +15,7 @@ clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
 humantime = "2"
 mime_guess = "2"
-reqwest = { version = "0.13", features = ["json", "multipart", "stream"] }
+reqwest = { version = "0.13", features = ["json", "multipart", "stream", "query"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.11"
