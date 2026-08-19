@@ -186,7 +186,12 @@ impl PCloud {
                 .context("failed to write temp file")?;
         }
         file.flush().await.context("failed to flush temp file")?;
-        Ok((written, format!("{:x}", hasher.finalize())))
+        let digest = hasher.finalize();
+        let checksum = digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        Ok((written, checksum))
     }
 }
 
