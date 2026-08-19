@@ -82,9 +82,9 @@ struct Metadata {
     isfolder: bool,
     #[serde(default)]
     name: Option<String>,
-    fileid: Option<i64>,
-    hash: Option<i64>,
-    size: Option<i64>,
+    fileid: Option<u64>,
+    hash: Option<u64>,
+    size: Option<u64>,
     #[serde(default)]
     contents: Vec<Metadata>,
 }
@@ -102,10 +102,10 @@ struct FileLink {
 }
 
 struct FileRef {
-    id: i64,
+    id: u64,
     name: String,
-    hash: i64,
-    size: i64,
+    hash: u64,
+    size: u64,
 }
 
 struct PCloud {
@@ -141,7 +141,7 @@ impl PCloud {
 
     /// Stream a file to disk, computing its SHA-1 checksum on the way.
     /// Returns (bytes written, checksum hex).
-    async fn download_and_hash(&self, id: i64, dest: &Path) -> Result<(u64, String)> {
+    async fn download_and_hash(&self, id: u64, dest: &Path) -> Result<(u64, String)> {
         let link: FileLink = self
             .http
             .get(format!("https://{}/getfilelink", self.host))
@@ -192,7 +192,7 @@ impl PCloud {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct FolderState {
-    files: BTreeMap<i64, FileEntry>,
+    files: BTreeMap<u64, FileEntry>,
 }
 
 enum Outcome {
@@ -205,8 +205,8 @@ enum Outcome {
 #[derive(Debug, Serialize, Deserialize)]
 struct FileEntry {
     name: String,
-    hash: i64,
-    size: i64,
+    hash: u64,
+    size: u64,
     uploaded_at: String,
 }
 
@@ -602,12 +602,12 @@ mod tests {
         let mut files = Vec::new();
         collect_files(&folder, &mut files);
 
-        let mut ids: Vec<i64> = files.iter().map(|f| f.id).collect();
+        let mut ids: Vec<u64> = files.iter().map(|f| f.id).collect();
         ids.sort_unstable();
         assert_eq!(ids, vec![1, 2]);
     }
 
-    fn file(id: i64, name: &str, hash: i64) -> Metadata {
+    fn file(id: u64, name: &str, hash: u64) -> Metadata {
         Metadata {
             isfolder: false,
             name: Some(name.into()),
