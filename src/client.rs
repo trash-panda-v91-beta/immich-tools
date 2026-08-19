@@ -6,6 +6,7 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::Duration;
 use tokio::fs;
 use tokio_util::io::StreamReader;
 
@@ -46,6 +47,8 @@ struct SearchRequest {
 impl ImmichClient {
     pub fn new(base_url: String, api_key: String) -> Result<Self> {
         let client = Client::builder()
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(900))
             .build()
             .context("failed to build HTTP client")?;
         Ok(Self {
