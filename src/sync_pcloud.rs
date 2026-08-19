@@ -1,10 +1,13 @@
 use crate::client::ImmichClient;
 use anyhow::{Context, Result};
 use clap::Args;
+use futures_util::{stream, StreamExt};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
 #[derive(Args)]
@@ -32,6 +35,10 @@ pub struct PCloudArgs {
     /// Directory that stores per-folder JSON ledgers of processed files
     #[arg(long, env = "STATE_DIR")]
     state_dir: PathBuf,
+
+    /// Maximum concurrent downloads/uploads per folder
+    #[arg(long, env = "CONCURRENCY", default_value_t = 4)]
+    concurrency: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,7 +111,9 @@ impl PCloud {
             .with_context(|| format!("listfolder failed (result {})", resp.result))
     }
 
-    async fn download_bytes(&self, id: i64) -> Result<Vec<u8>> {
+    /// Stream a file to disk, computing its SHA-1 checksum on the way.
+    /// Returns (bytes written, checksum hex).
+    async fn download_and_hash(&self, id: i64, dest: &Path) -> Result<(u64, String)> {
         let link: FileLink = self
             .http
             .get(format!("https://{}/getfilelink", self.host))
@@ -125,23 +134,44 @@ impl PCloud {
             .first()
             .context("getfilelink returned no hosts")?;
         let url = format!("https://{host}{}", link.path);
-        self.http
+        let resp = self
+            .http
             .get(url)
             .send()
             .await
             .context("file download request failed")?
             .error_for_status()
-            .context("file download error status")?
-            .bytes()
+            .context("file download error status")?;
+
+        let mut file = tokio::fs::File::create(dest)
             .await
-            .context("failed to read file bytes")
-            .map(|b| b.to_vec())
+            .context("failed to create temp file")?;
+        let mut hasher = Sha1::new();
+        let mut written: u64 = 0;
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("download chunk error")?;
+            hasher.update(&chunk);
+            written += chunk.len() as u64;
+            file.write_all(&chunk)
+                .await
+                .context("failed to write temp file")?;
+        }
+        file.flush().await.context("failed to flush temp file")?;
+        Ok((written, format!("{:x}", hasher.finalize())))
     }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct FolderState {
     files: BTreeMap<i64, FileEntry>,
+}
+
+enum Outcome {
+    Skipped,
+    Uploaded,
+    Duplicate,
+    Failed,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -212,36 +242,70 @@ pub async fn run(args: PCloudArgs) -> Result<()> {
         let mut files = Vec::new();
         collect_files(&folder, &mut files);
 
-        let mut changed = false;
-        for f in &files {
-            // skip files we already processed with the same content
-            if folder_state.files.get(&f.id).map(|e| e.hash) == Some(f.hash) {
-                skipped += 1;
-                continue;
-            }
-
-            info!("upload: {}", f.name);
-            match pcloud.download_bytes(f.id).await {
-                Ok(bytes) => match immich
-                    .upload_asset_bytes(&f.name, &format!("pcloud-{}", f.id), bytes)
-                    .await
-                {
-                    Ok(_) => {
-                        folder_state.files.insert(
-                            f.id,
-                            FileEntry {
-                                name: f.name.clone(),
-                                hash: f.hash,
-                                size: f.size,
-                                uploaded_at: chrono::Utc::now().to_rfc3339(),
-                            },
-                        );
-                        uploaded += 1;
-                        changed = true;
+        let tmp_dir = std::env::temp_dir();
+        let outcomes: Vec<(FileRef, Outcome)> = stream::iter(files)
+            .map(|f| {
+                let pcloud = &pcloud;
+                let immich = &immich;
+                let folder_state = &folder_state;
+                let tmp_dir = &tmp_dir;
+                async move {
+                    if folder_state.files.get(&f.id).map(|e| e.hash) == Some(f.hash) {
+                        return (f, Outcome::Skipped);
                     }
-                    Err(e) => warn!("failed to upload {}: {e:#}", f.name),
-                },
-                Err(e) => warn!("failed to download {}: {e:#}", f.name),
+
+                    let tmp = tmp_dir.join(format!("immich-pcloud-{}.tmp", f.id));
+                    let result = (async {
+                        let (size, checksum) = pcloud.download_and_hash(f.id, &tmp).await?;
+                        immich
+                            .upload_asset_file(
+                                &f.name,
+                                &format!("pcloud-{}", f.id),
+                                &tmp,
+                                size,
+                                &checksum,
+                            )
+                            .await
+                    })
+                    .await;
+                    let outcome = match result {
+                        Ok(Some(_)) => Outcome::Uploaded,
+                        Ok(None) => Outcome::Duplicate,
+                        Err(e) => {
+                            warn!("failed to process {}: {e:#}", f.name);
+                            Outcome::Failed
+                        }
+                    };
+                    let _ = tokio::fs::remove_file(&tmp).await;
+                    (f, outcome)
+                }
+            })
+            .buffer_unordered(args.concurrency.max(1))
+            .collect()
+            .await;
+
+        let mut changed = false;
+        for (f, outcome) in outcomes {
+            match outcome {
+                Outcome::Skipped => skipped += 1,
+                Outcome::Failed => {}
+                Outcome::Uploaded | Outcome::Duplicate => {
+                    folder_state.files.insert(
+                        f.id,
+                        FileEntry {
+                            name: f.name.clone(),
+                            hash: f.hash,
+                            size: f.size,
+                            uploaded_at: chrono::Utc::now().to_rfc3339(),
+                        },
+                    );
+                    changed = true;
+                    if matches!(outcome, Outcome::Uploaded) {
+                        uploaded += 1;
+                    } else {
+                        skipped += 1;
+                    }
+                }
             }
         }
 
