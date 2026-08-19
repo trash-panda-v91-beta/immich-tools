@@ -106,18 +106,24 @@ impl ImmichClient {
         Ok(())
     }
 
-    /// Returns the asset ID if upload succeeded, None if asset already exists.
-    pub async fn upload_asset_bytes(
+    /// Returns the asset ID if uploaded, None if Immich already has that checksum.
+    /// Streams the file from disk so memory stays flat regardless of file size.
+    pub async fn upload_asset_file(
         &self,
         filename: &str,
         dedup_key: &str,
-        bytes: Vec<u8>,
+        path: &Path,
+        size: u64,
+        checksum: &str,
     ) -> Result<Option<String>> {
         let mime = mime_guess::from_path(filename)
             .first_or_octet_stream()
             .to_string();
 
-        let part = Part::bytes(bytes)
+        let file = fs::File::open(path)
+            .await
+            .context("failed to open file for upload")?;
+        let part = Part::stream_with_length(file, size)
             .file_name(filename.to_string())
             .mime_str(&mime)?;
         let form = Form::new()
@@ -131,13 +137,14 @@ impl ImmichClient {
             .client
             .post(format!("{}/api/assets", self.base_url))
             .header("x-api-key", &self.api_key)
+            .header("x-immich-checksum", checksum)
             .multipart(form)
             .send()
             .await
             .context("upload request failed")?;
 
         if resp.status() == StatusCode::OK {
-            // 200 means duplicate
+            // 200 = duplicate: Immich already has this checksum
             return Ok(None);
         }
         resp.error_for_status_ref()
