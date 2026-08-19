@@ -1,6 +1,6 @@
 ---
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: PR Conventions
+name: PR Quality Checks
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   pr-conventions:
-    name: Validate title and label
+    name: Validate PR Conventions
     runs-on: ubuntu-latest
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
