@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.0...v0.2.1) (2026-08-19)
+
+
+### Features
+
+* **container:** update rust ( 1.87 ➔ 1.97 ) ([#37](https://github.com/trash-panda-v91-beta/immich-tools/issues/37)) ([3b6a074](https://github.com/trash-panda-v91-beta/immich-tools/commit/3b6a07459758e5aceefd5fe6fac4de64f207486d))
+* **serve:** run favorites sync in the background ([#39](https://github.com/trash-panda-v91-beta/immich-tools/issues/39)) ([3c6541e](https://github.com/trash-panda-v91-beta/immich-tools/commit/3c6541ea5749f88343db1a58021c46290733e580))
+
+
+### Continuous Integration
+
+* **github-action:** pin jdx/mise-action action to 3c2e0cf ([#32](https://github.com/trash-panda-v91-beta/immich-tools/issues/32)) ([e373a3c](https://github.com/trash-panda-v91-beta/immich-tools/commit/e373a3c0ff00436ab34a4a3e25553cecc4162c6a))
+
 ## [0.2.0](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.1.1...v0.2.0) (2026-08-19)
 
 
