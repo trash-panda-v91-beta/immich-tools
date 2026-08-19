@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.1...v0.2.2) (2026-08-19)
+
+
+### Features
+
+* **serve:** require bearer token on the HTTP API ([#40](https://github.com/trash-panda-v91-beta/immich-tools/issues/40)) ([c2e147b](https://github.com/trash-panda-v91-beta/immich-tools/commit/c2e147b099ea4df2d77e50302e604237b67acca2))
+
 ## [0.2.1](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.0...v0.2.1) (2026-08-19)
 
 
