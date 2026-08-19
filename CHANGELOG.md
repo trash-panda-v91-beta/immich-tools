@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.2...v0.2.3) (2026-08-19)
+
+
+### Bug Fixes
+
+* bundle CA certs into the scratch image ([#42](https://github.com/trash-panda-v91-beta/immich-tools/issues/42)) ([594c840](https://github.com/trash-panda-v91-beta/immich-tools/commit/594c840c1c67402d321d0059b7c73778d40342b0))
+
 ## [0.2.2](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.1...v0.2.2) (2026-08-19)
 
 
