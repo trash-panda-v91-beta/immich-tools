@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.1.1...v0.2.0) (2026-08-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **github-action:** Update github-actions ([#36](https://github.com/trash-panda-v91-beta/immich-tools/issues/36))
+
+### Features
+
+* **deps:** update cargo ([#34](https://github.com/trash-panda-v91-beta/immich-tools/issues/34)) ([5a943c4](https://github.com/trash-panda-v91-beta/immich-tools/commit/5a943c4a9605a2ef92639c82842b80689581e554))
+* **sync-favorites:** run on a configurable interval ([#31](https://github.com/trash-panda-v91-beta/immich-tools/issues/31)) ([fb54b63](https://github.com/trash-panda-v91-beta/immich-tools/commit/fb54b63dbd09e4d8fb23a3b41e3df007381bd895))
+
+
+### Continuous Integration
+
+* **github-action:** Update github-actions ([#36](https://github.com/trash-panda-v91-beta/immich-tools/issues/36)) ([9a19c38](https://github.com/trash-panda-v91-beta/immich-tools/commit/9a19c38a8196595d4d3770db1cfcbbccaee06fc1))
+
 ## [0.1.1](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.1.0...v0.1.1) (2026-08-19)
 
 
