@@ -1,9 +1,11 @@
 use crate::client::ImmichClient;
 use anyhow::{bail, Context, Result};
 use axum::{
+    body::Body,
     extract::State,
-    http::StatusCode,
-    response::Json,
+    http::{header, Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
@@ -61,6 +63,10 @@ pub struct PCloudArgs {
     /// How often to run the background favorites sync (e.g. "6h"); requires --favorites-dir
     #[arg(long, env = "SYNC_INTERVAL")]
     favorites_interval: Option<String>,
+
+    /// Bearer token required to call the API
+    #[arg(long, env = "API_TOKEN")]
+    api_token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -345,6 +351,26 @@ async fn handle_sync(State(state): State<Shared>) -> Result<Json<Value>, StatusC
     }
 }
 
+fn authorized(req: &Request<Body>, token: &str) -> bool {
+    req.headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        == Some(token)
+}
+
+async fn require_auth(
+    State(token): State<Arc<str>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if authorized(&request, &token) {
+        next.run(request).await
+    } else {
+        StatusCode::UNAUTHORIZED.into_response()
+    }
+}
+
 pub async fn serve(args: PCloudArgs) -> Result<()> {
     if let Some(dir) = args.favorites_dir.clone() {
         spawn_favorites_sync(
@@ -355,6 +381,7 @@ pub async fn serve(args: PCloudArgs) -> Result<()> {
         )?;
     }
     let addr = args.listen.clone();
+    let api_token = args.api_token.clone();
     let shared = Shared {
         args: Arc::new(args),
         lock: Arc::new(Mutex::new(())),
@@ -362,7 +389,12 @@ pub async fn serve(args: PCloudArgs) -> Result<()> {
     let app = Router::new()
         .route("/folders", get(handle_list).post(handle_add))
         .route("/sync", post(handle_sync))
-        .with_state(shared);
+        .with_state(shared)
+        .layer(middleware::from_fn_with_state(
+            Arc::<str>::from(api_token),
+            require_auth,
+        ));
+    info!("API auth enabled (bearer token)");
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .with_context(|| format!("failed to bind {addr}"))?;
@@ -512,6 +544,23 @@ async fn sync(args: &PCloudArgs) -> Result<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auth_requires_bearer_match() {
+        let with = |h: &str| {
+            Request::builder()
+                .header(header::AUTHORIZATION, h)
+                .body(Body::empty())
+                .unwrap()
+        };
+        assert!(authorized(&with("Bearer secret"), "secret"));
+        assert!(!authorized(&with("Bearer wrong"), "secret"));
+        assert!(!authorized(&with("Basic abc"), "secret"));
+        assert!(!authorized(
+            &Request::builder().body(Body::empty()).unwrap(),
+            "secret"
+        ));
+    }
 
     #[test]
     fn add_is_idempotent() {
