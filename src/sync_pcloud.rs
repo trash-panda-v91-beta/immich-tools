@@ -1,13 +1,23 @@
 use crate::client::ImmichClient;
-use anyhow::{Context, Result};
-use clap::Args;
+use anyhow::{bail, Context, Result};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::Json,
+    routing::{get, post},
+    Router,
+};
+use clap::{Args, Subcommand};
 use futures_util::{stream, StreamExt};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 #[derive(Args)]
@@ -36,12 +46,16 @@ pub struct PCloudArgs {
     #[arg(long, env = "STATE_DIR")]
     state_dir: PathBuf,
 
+    /// Address to bind the HTTP API on (serve mode)
+    #[arg(long, env = "LISTEN", default_value = "0.0.0.0:8080")]
+    listen: String,
+
     /// Maximum concurrent downloads/uploads per folder
     #[arg(long, env = "CONCURRENCY", default_value_t = 4)]
     concurrency: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Config {
     /// Exact pCloud folder paths to upload, e.g. "FOTKY/FOTKY - digitál/RODINA/.../High-Res"
     folders: Vec<String>,
@@ -212,8 +226,140 @@ fn sanitize(path: &str) -> String {
         .collect()
 }
 
+#[derive(Args)]
+pub struct FoldersArgs {
+    /// Path to config.toml listing base folders to scan
+    #[arg(long, env = "CONFIG")]
+    config: PathBuf,
+
+    #[command(subcommand)]
+    command: FoldersCommand,
+}
+
+#[derive(Subcommand)]
+enum FoldersCommand {
+    /// List the configured pCloud folders
+    List,
+    /// Add a pCloud folder path (idempotent, no validation)
+    Add {
+        /// pCloud folder path, e.g. "FOTKY/Some Folder"
+        path: String,
+    },
+}
+
+fn read_folders(config: &Path) -> Result<Vec<String>> {
+    let raw = std::fs::read_to_string(config)
+        .with_context(|| format!("failed to read config {}", config.display()))?;
+    let cfg: Config = toml::from_str(&raw).context("failed to parse config.toml")?;
+    let mut folders = Vec::new();
+    for f in cfg.folders {
+        let t = f.trim();
+        if !t.is_empty() {
+            folders.push(t.to_string());
+        }
+    }
+    Ok(folders)
+}
+
+pub fn folders(args: FoldersArgs) -> Result<()> {
+    match args.command {
+        FoldersCommand::List => {
+            for f in read_folders(&args.config)? {
+                println!("{f}");
+            }
+            Ok(())
+        }
+        FoldersCommand::Add { path } => {
+            add_folder(&args.config, &path)?;
+            Ok(())
+        }
+    }
+}
+
+/// Add a folder to the config. Returns true if newly added, false if already present.
+fn add_folder(config: &Path, path: &str) -> Result<bool> {
+    let path = path.trim();
+    if path.is_empty() {
+        bail!("folder path must not be empty");
+    }
+    let mut folders = if config.exists() {
+        read_folders(config)?
+    } else {
+        Vec::new()
+    };
+    if folders.iter().any(|f| f == path) {
+        println!("already present: {path}");
+        return Ok(false);
+    }
+    folders.push(path.to_string());
+    let cfg = Config { folders };
+    std::fs::write(config, toml::to_string(&cfg)?)
+        .with_context(|| format!("failed to write config {}", config.display()))?;
+    println!("added: {path}");
+    Ok(true)
+}
+
+#[derive(Clone)]
+struct Shared {
+    args: Arc<PCloudArgs>,
+    lock: Arc<Mutex<()>>,
+}
+
+#[derive(Deserialize)]
+struct AddFolderBody {
+    path: String,
+}
+
+async fn handle_list(State(state): State<Shared>) -> Json<Vec<String>> {
+    Json(read_folders(&state.args.config).unwrap_or_default())
+}
+
+async fn handle_add(
+    State(state): State<Shared>,
+    Json(body): Json<AddFolderBody>,
+) -> Result<Json<Value>, StatusCode> {
+    let _guard = state.lock.lock().await;
+    let added = add_folder(&state.args.config, &body.path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(
+        json!({ "path": body.path.trim(), "duplicate": !added }),
+    ))
+}
+
+async fn handle_sync(State(state): State<Shared>) -> Result<Json<Value>, StatusCode> {
+    let _guard = state.lock.lock().await;
+    match sync(&state.args).await {
+        Ok((uploaded, skipped)) => Ok(Json(json!({ "uploaded": uploaded, "skipped": skipped }))),
+        Err(e) => {
+            warn!("sync failed: {e:#}");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+pub async fn serve(args: PCloudArgs) -> Result<()> {
+    let addr = args.listen.clone();
+    let shared = Shared {
+        args: Arc::new(args),
+        lock: Arc::new(Mutex::new(())),
+    };
+    let app = Router::new()
+        .route("/folders", get(handle_list).post(handle_add))
+        .route("/sync", post(handle_sync))
+        .with_state(shared);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("failed to bind {addr}"))?;
+    info!("pcloud API listening on {addr}");
+    axum::serve(listener, app).await.context("server error")
+}
+
 pub async fn run(args: PCloudArgs) -> Result<()> {
-    let immich = ImmichClient::new(args.url, args.api_key)?;
+    sync(&args).await.map(|_| ())
+}
+
+async fn sync(args: &PCloudArgs) -> Result<(u32, u32)> {
+    let immich = ImmichClient::new(args.url.clone(), args.api_key.clone())?;
     let pcloud = PCloud::new(args.token.clone(), args.host.clone())?;
     let state = args.state_dir.clone();
     std::fs::create_dir_all(&state).context("failed to create state dir")?;
@@ -318,12 +464,26 @@ pub async fn run(args: PCloudArgs) -> Result<()> {
     }
 
     info!("done - {uploaded} uploaded, {skipped} skipped");
-    Ok(())
+    Ok((uploaded, skipped))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_is_idempotent() {
+        let dir = std::env::temp_dir().join(format!("folders-test-{}", std::process::id()));
+        let cfg = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        add_folder(&cfg, "FOTKY/A").unwrap();
+        add_folder(&cfg, "FOTKY/B").unwrap();
+        add_folder(&cfg, "FOTKY/A").unwrap(); // duplicate -> no change
+
+        assert_eq!(read_folders(&cfg).unwrap(), vec!["FOTKY/A", "FOTKY/B"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn collects_only_direct_files() {
