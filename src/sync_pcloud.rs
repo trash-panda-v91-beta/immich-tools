@@ -6,10 +6,10 @@ use axum::{
     http::{header, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
-    routing::{get, post},
+    routing::post,
     Router,
 };
-use clap::{Args, Subcommand};
+use clap::Args;
 use futures_util::{stream, StreamExt};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -41,9 +41,9 @@ pub struct PCloudArgs {
     #[arg(long, env = "PCLOUD_HOST", default_value = "api.pcloud.com")]
     host: String,
 
-    /// Path to config.toml listing base folders to scan
-    #[arg(long, env = "CONFIG")]
-    config: std::path::PathBuf,
+    /// pCloud folder path to sync (one-shot CLI mode only; the HTTP API takes it per request)
+    #[arg(long, env = "FOLDER")]
+    folder: Option<String>,
 
     /// Directory that stores per-folder JSON ledgers of processed files
     #[arg(long, env = "STATE_DIR")]
@@ -68,12 +68,6 @@ pub struct PCloudArgs {
     /// Bearer token required to call the API
     #[arg(long, env = "API_TOKEN")]
     api_token: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Config {
-    /// Exact pCloud folder paths to upload, e.g. "FOTKY/FOTKY - digitál/RODINA/.../High-Res"
-    folders: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -254,83 +248,6 @@ fn nfd(path: &str) -> String {
     path.nfd().collect()
 }
 
-#[derive(Args)]
-pub struct FoldersArgs {
-    /// Path to config.toml listing base folders to scan
-    #[arg(long, env = "CONFIG")]
-    config: PathBuf,
-
-    #[command(subcommand)]
-    command: FoldersCommand,
-}
-
-#[derive(Subcommand)]
-enum FoldersCommand {
-    /// List the configured pCloud folders
-    List,
-    /// Add a pCloud folder path (idempotent, no validation)
-    Add {
-        /// pCloud folder path, e.g. "FOTKY/Some Folder"
-        path: String,
-    },
-}
-
-fn read_folders(config: &Path) -> Result<Vec<String>> {
-    let raw = std::fs::read_to_string(config)
-        .with_context(|| format!("failed to read config {}", config.display()))?;
-    let cfg: Config = toml::from_str(&raw).context("failed to parse config.toml")?;
-    let mut folders = Vec::new();
-    for f in cfg.folders {
-        // Normalize to NFD so lookups against pCloud always match its
-        // decomposed names regardless of how the path was written to config.
-        let t = nfd(&f).trim().to_string();
-        if !t.is_empty() {
-            folders.push(t);
-        }
-    }
-    Ok(folders)
-}
-
-pub fn folders(args: FoldersArgs) -> Result<()> {
-    match args.command {
-        FoldersCommand::List => {
-            for f in read_folders(&args.config)? {
-                println!("{f}");
-            }
-            Ok(())
-        }
-        FoldersCommand::Add { path } => {
-            add_folder(&args.config, &path)?;
-            Ok(())
-        }
-    }
-}
-
-/// Add a folder to the config. Returns true if newly added, false if already present.
-fn add_folder(config: &Path, path: &str) -> Result<bool> {
-    // Normalize to NFD up front so an NFC-typed path exactly matches the
-    // decomposed form already stored (and what pCloud expects).
-    let path = nfd(path).trim().to_string();
-    if path.is_empty() {
-        bail!("folder path must not be empty");
-    }
-    let mut folders = if config.exists() {
-        read_folders(config)?
-    } else {
-        Vec::new()
-    };
-    if folders.contains(&path) {
-        println!("already present: {path}");
-        return Ok(false);
-    }
-    println!("added: {path}");
-    folders.push(path);
-    let cfg = Config { folders };
-    std::fs::write(config, toml::to_string(&cfg)?)
-        .with_context(|| format!("failed to write config {}", config.display()))?;
-    Ok(true)
-}
-
 #[derive(Clone)]
 struct Shared {
     args: Arc<PCloudArgs>,
@@ -338,29 +255,16 @@ struct Shared {
 }
 
 #[derive(Deserialize)]
-struct AddFolderBody {
+struct SyncBody {
     path: String,
 }
 
-async fn handle_list(State(state): State<Shared>) -> Json<Vec<String>> {
-    Json(read_folders(&state.args.config).unwrap_or_default())
-}
-
-async fn handle_add(
+async fn handle_sync(
     State(state): State<Shared>,
-    Json(body): Json<AddFolderBody>,
+    Json(body): Json<SyncBody>,
 ) -> Result<Json<Value>, StatusCode> {
     let _guard = state.lock.lock().await;
-    let added = add_folder(&state.args.config, &body.path)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(
-        json!({ "path": body.path.trim(), "duplicate": !added }),
-    ))
-}
-
-async fn handle_sync(State(state): State<Shared>) -> Result<Json<Value>, StatusCode> {
-    let _guard = state.lock.lock().await;
-    match sync(&state.args).await {
+    match sync_folder(&state.args, &body.path).await {
         Ok((uploaded, skipped)) => Ok(Json(json!({ "uploaded": uploaded, "skipped": skipped }))),
         Err(e) => {
             warn!("sync failed: {e:#}");
@@ -405,7 +309,6 @@ pub async fn serve(args: PCloudArgs) -> Result<()> {
         lock: Arc::new(Mutex::new(())),
     };
     let app = Router::new()
-        .route("/folders", get(handle_list).post(handle_add))
         .route("/sync", post(handle_sync))
         .with_state(shared)
         .layer(middleware::from_fn_with_state(
@@ -447,112 +350,112 @@ fn spawn_favorites_sync(
 }
 
 pub async fn run(args: PCloudArgs) -> Result<()> {
-    sync(&args).await.map(|_| ())
+    let path = args
+        .folder
+        .as_deref()
+        .context("a folder path is required: pass --folder <path>")?;
+    sync_folder(&args, path).await.map(|_| ())
 }
 
-async fn sync(args: &PCloudArgs) -> Result<(u32, u32)> {
+/// Sync a single pCloud folder to Immich.
+async fn sync_folder(args: &PCloudArgs, path: &str) -> Result<(u32, u32)> {
+    // Normalize to NFD so pCloud listfolder matches its decomposed names.
+    let path = nfd(path).trim().to_string();
+    if path.is_empty() {
+        bail!("folder path must not be empty");
+    }
+
     let immich = ImmichClient::new(args.url.clone(), args.api_key.clone())?;
     let pcloud = PCloud::new(args.token.clone(), args.host.clone())?;
     let state = args.state_dir.clone();
     std::fs::create_dir_all(&state).context("failed to create state dir")?;
 
-    let raw = std::fs::read_to_string(&args.config)
-        .with_context(|| format!("failed to read config {}", args.config.display()))?;
-    let config: Config = toml::from_str(&raw).context("failed to parse config.toml")?;
-
     let mut uploaded = 0u32;
     let mut skipped = 0u32;
 
-    for path in &config.folders {
-        let path = path.trim();
-        if path.is_empty() {
-            continue;
-        }
+    let state_path = state.join(format!("{}.json", sanitize(&path)));
+    let mut folder_state: FolderState = match std::fs::read_to_string(&state_path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => FolderState::default(),
+    };
 
-        let state_path = state.join(format!("{}.json", sanitize(path)));
-        let mut folder_state: FolderState = match std::fs::read_to_string(&state_path) {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-            Err(_) => FolderState::default(),
-        };
+    info!("scanning {path}");
+    let folder = pcloud.list_folder(&path).await?;
+    let mut files = Vec::new();
+    collect_files(&folder, &mut files);
 
-        info!("scanning {path}");
-        let folder = pcloud.list_folder(path).await?;
-        let mut files = Vec::new();
-        collect_files(&folder, &mut files);
-
-        let tmp_dir = std::env::temp_dir();
-        let outcomes: Vec<(FileRef, Outcome)> = stream::iter(files)
-            .map(|f| {
-                let pcloud = &pcloud;
-                let immich = &immich;
-                let folder_state = &folder_state;
-                let tmp_dir = &tmp_dir;
-                async move {
-                    if folder_state.files.get(&f.id).map(|e| e.hash) == Some(f.hash) {
-                        return (f, Outcome::Skipped);
-                    }
-
-                    let tmp = tmp_dir.join(format!("immich-pcloud-{}.tmp", f.id));
-                    let result = (async {
-                        let (size, checksum) = pcloud.download_and_hash(f.id, &tmp).await?;
-                        immich
-                            .upload_asset_file(
-                                &f.name,
-                                &format!("pcloud-{}", f.id),
-                                &tmp,
-                                size,
-                                &checksum,
-                            )
-                            .await
-                    })
-                    .await;
-                    let outcome = match result {
-                        Ok(Some(_)) => Outcome::Uploaded,
-                        Ok(None) => Outcome::Duplicate,
-                        Err(e) => {
-                            warn!("failed to process {}: {e:#}", f.name);
-                            Outcome::Failed
-                        }
-                    };
-                    let _ = tokio::fs::remove_file(&tmp).await;
-                    (f, outcome)
+    let tmp_dir = std::env::temp_dir();
+    let outcomes: Vec<(FileRef, Outcome)> = stream::iter(files)
+        .map(|f| {
+            let pcloud = &pcloud;
+            let immich = &immich;
+            let folder_state = &folder_state;
+            let tmp_dir = &tmp_dir;
+            async move {
+                if folder_state.files.get(&f.id).map(|e| e.hash) == Some(f.hash) {
+                    return (f, Outcome::Skipped);
                 }
-            })
-            .buffer_unordered(args.concurrency.max(1))
-            .collect()
-            .await;
 
-        let mut changed = false;
-        for (f, outcome) in outcomes {
-            match outcome {
-                Outcome::Skipped => skipped += 1,
-                Outcome::Failed => {}
-                Outcome::Uploaded | Outcome::Duplicate => {
-                    folder_state.files.insert(
-                        f.id,
-                        FileEntry {
-                            name: f.name.clone(),
-                            hash: f.hash,
-                            size: f.size,
-                            uploaded_at: chrono::Utc::now().to_rfc3339(),
-                        },
-                    );
-                    changed = true;
-                    if matches!(outcome, Outcome::Uploaded) {
-                        uploaded += 1;
-                    } else {
-                        skipped += 1;
+                let tmp = tmp_dir.join(format!("immich-pcloud-{}.tmp", f.id));
+                let result = (async {
+                    let (size, checksum) = pcloud.download_and_hash(f.id, &tmp).await?;
+                    immich
+                        .upload_asset_file(
+                            &f.name,
+                            &format!("pcloud-{}", f.id),
+                            &tmp,
+                            size,
+                            &checksum,
+                        )
+                        .await
+                })
+                .await;
+                let outcome = match result {
+                    Ok(Some(_)) => Outcome::Uploaded,
+                    Ok(None) => Outcome::Duplicate,
+                    Err(e) => {
+                        warn!("failed to process {}: {e:#}", f.name);
+                        Outcome::Failed
                     }
+                };
+                let _ = tokio::fs::remove_file(&tmp).await;
+                (f, outcome)
+            }
+        })
+        .buffer_unordered(args.concurrency.max(1))
+        .collect()
+        .await;
+
+    let mut changed = false;
+    for (f, outcome) in outcomes {
+        match outcome {
+            Outcome::Skipped => skipped += 1,
+            Outcome::Failed => {}
+            Outcome::Uploaded | Outcome::Duplicate => {
+                folder_state.files.insert(
+                    f.id,
+                    FileEntry {
+                        name: f.name.clone(),
+                        hash: f.hash,
+                        size: f.size,
+                        uploaded_at: chrono::Utc::now().to_rfc3339(),
+                    },
+                );
+                changed = true;
+                if matches!(outcome, Outcome::Uploaded) {
+                    uploaded += 1;
+                } else {
+                    skipped += 1;
                 }
             }
         }
+    }
 
-        if changed {
-            let json = serde_json::to_string_pretty(&folder_state)
-                .context("failed to serialize folder state")?;
-            std::fs::write(&state_path, json)
-                .with_context(|| format!("failed to write state {}", state_path.display()))?;
-        }
+    if changed {
+        let json = serde_json::to_string_pretty(&folder_state)
+            .context("failed to serialize folder state")?;
+        std::fs::write(&state_path, json)
+            .with_context(|| format!("failed to write state {}", state_path.display()))?;
     }
 
     info!("done - {uploaded} uploaded, {skipped} skipped");
@@ -581,40 +484,22 @@ mod tests {
     }
 
     #[test]
-    fn add_is_idempotent() {
-        let dir = std::env::temp_dir().join(format!("folders-test-{}", std::process::id()));
-        let cfg = dir.join("config.toml");
-        std::fs::create_dir_all(&dir).unwrap();
-
-        add_folder(&cfg, "FOTKY/A").unwrap();
-        add_folder(&cfg, "FOTKY/B").unwrap();
-        add_folder(&cfg, "FOTKY/A").unwrap(); // duplicate -> no change
-
-        assert_eq!(read_folders(&cfg).unwrap(), vec!["FOTKY/A", "FOTKY/B"]);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn add_normalizes_nfc_to_nfd_and_dedupes() {
-        let dir = std::env::temp_dir().join(format!("folders-nfd-test-{}", std::process::id()));
-        let cfg = dir.join("config.toml");
-        std::fs::create_dir_all(&dir).unwrap();
-
-        // Composed (NFC) "digitál" is added first; "KONCERTY, PŘEDSTAVENÍ/Rodinné"
-        // contains composed/capital accented chars too.
+    fn normalizes_nfc_to_nfd() {
+        // Composed (NFC) accents, including capital/caron letters, decompose to NFD
+        // so pCloud listfolder matches its stored names.
         let nfc = "/FOTKY/FOTKY - digitál/KONCERTY, PŘEDSTAVENÍ/Rodinné";
-        add_folder(&cfg, nfc).unwrap();
-
-        // The decomposed (NFD) equivalent must be treated as the SAME folder.
-        let nfd = nfd(nfc);
-        assert_ne!(nfc, nfd, "expected NFC input to differ from its NFD form");
-        assert_eq!(add_folder(&cfg, &nfd).unwrap(), false);
-
-        // One entry, stored as NFD.
-        let folders = read_folders(&cfg).unwrap();
-        assert_eq!(folders.len(), 1);
-        assert_eq!(folders[0], nfd);
-        let _ = std::fs::remove_dir_all(&dir);
+        let decomposed = nfd(nfc);
+        assert_ne!(
+            nfc, decomposed,
+            "expected NFC input to differ from its NFD form"
+        );
+        // NFD is a fixed point: normalizing twice is unchanged.
+        assert_eq!(nfd(&decomposed), decomposed);
+        // spot-check the decomposed form
+        assert_eq!(
+            decomposed,
+            "/FOTKY/FOTKY - digita\u{301}l/KONCERTY, PR\u{30c}EDSTAVENI\u{301}/Rodinne\u{301}"
+        );
     }
 
     #[test]
