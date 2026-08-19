@@ -37,7 +37,7 @@ pub async fn run(args: SyncArgs) -> Result<()> {
     };
 
     loop {
-        sync_once(&client, &dir).await?;
+        run_once(&client, &dir).await?;
         match interval {
             Some(d) => tokio::time::sleep(d).await,
             None => break,
@@ -46,7 +46,8 @@ pub async fn run(args: SyncArgs) -> Result<()> {
     Ok(())
 }
 
-async fn sync_once(client: &ImmichClient, dir: &Path) -> Result<()> {
+/// Run a single favorites sync pass. Reused by serve to sync in the background.
+pub async fn run_once(client: &ImmichClient, dir: &Path) -> Result<()> {
     let mut page = 1u32;
     let mut synced = 0u32;
     let mut skipped = 0u32;
