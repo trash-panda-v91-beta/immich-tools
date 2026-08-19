@@ -19,6 +19,10 @@ enum Command {
     SyncFavorites(sync_favorites::SyncArgs),
     /// Upload files from pCloud High-Res folders to Immich
     SyncPcloud(sync_pcloud::PCloudArgs),
+    /// List or add pCloud folders in the sync config
+    Folders(sync_pcloud::FoldersArgs),
+    /// Run the pCloud sync as an HTTP API (manage folders + trigger sync)
+    Serve(sync_pcloud::PCloudArgs),
 }
 
 #[tokio::main]
@@ -31,5 +35,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::SyncFavorites(args) => sync_favorites::run(args).await,
         Command::SyncPcloud(args) => sync_pcloud::run(args).await,
+        Command::Folders(args) => sync_pcloud::folders(args),
+        Command::Serve(args) => sync_pcloud::serve(args).await,
     }
 }
