@@ -53,6 +53,14 @@ pub struct PCloudArgs {
     /// Maximum concurrent downloads/uploads per folder
     #[arg(long, env = "CONCURRENCY", default_value_t = 4)]
     concurrency: usize,
+
+    /// Directory to sync Immich favorites into; enables background favorites sync in serve
+    #[arg(long, env = "FAVORITES_DIR")]
+    favorites_dir: Option<PathBuf>,
+
+    /// How often to run the background favorites sync (e.g. "6h"); requires --favorites-dir
+    #[arg(long, env = "SYNC_INTERVAL")]
+    favorites_interval: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -338,6 +346,14 @@ async fn handle_sync(State(state): State<Shared>) -> Result<Json<Value>, StatusC
 }
 
 pub async fn serve(args: PCloudArgs) -> Result<()> {
+    if let Some(dir) = args.favorites_dir.clone() {
+        spawn_favorites_sync(
+            args.url.clone(),
+            args.api_key.clone(),
+            dir,
+            args.favorites_interval.as_deref(),
+        )?;
+    }
     let addr = args.listen.clone();
     let shared = Shared {
         args: Arc::new(args),
@@ -352,6 +368,32 @@ pub async fn serve(args: PCloudArgs) -> Result<()> {
         .with_context(|| format!("failed to bind {addr}"))?;
     info!("pcloud API listening on {addr}");
     axum::serve(listener, app).await.context("server error")
+}
+
+/// Run a favorites sync in the background on the given interval.
+fn spawn_favorites_sync(
+    url: String,
+    api_key: String,
+    dir: PathBuf,
+    interval: Option<&str>,
+) -> Result<()> {
+    let client = ImmichClient::new(url, api_key)?;
+    let interval = match interval {
+        Some(s) => Some(humantime::parse_duration(s)?),
+        None => None,
+    };
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = crate::sync_favorites::run_once(&client, &dir).await {
+                warn!("favorites sync failed: {e:#}");
+            }
+            match interval {
+                Some(d) => tokio::time::sleep(d).await,
+                None => break,
+            }
+        }
+    });
+    Ok(())
 }
 
 pub async fn run(args: PCloudArgs) -> Result<()> {
