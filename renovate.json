@@ -6,6 +6,16 @@
   },
   "packageRules": [
     {
+      "description": "Group GitHub Actions updates into one PR",
+      "groupName": "github-actions",
+      "matchManagers": ["github-actions"]
+    },
+    {
+      "description": "Group Cargo updates into one PR",
+      "groupName": "cargo",
+      "matchManagers": ["cargo"]
+    },
+    {
       "description": "Auto merge Rust dependency updates",
       "matchManagers": ["cargo"],
       "automerge": true,
