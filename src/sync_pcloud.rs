@@ -556,7 +556,10 @@ mod tests {
         assert!(authorized(&with("Bearer secret"), "secret"));
         assert!(!authorized(&with("Bearer wrong"), "secret"));
         assert!(!authorized(&with("Basic abc"), "secret"));
-        assert!(!authorized(&Request::builder().body(Body::empty()).unwrap(), "secret"));
+        assert!(!authorized(
+            &Request::builder().body(Body::empty()).unwrap(),
+            "secret"
+        ));
     }
 
     #[test]
