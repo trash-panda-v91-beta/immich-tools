@@ -21,6 +21,7 @@ use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Args)]
 pub struct PCloudArgs {
@@ -245,6 +246,14 @@ fn sanitize(path: &str) -> String {
         .collect()
 }
 
+/// Normalize a folder path to NFD. pCloud stores names decomposed (NFD, e.g.
+/// `digita\u{301}l`), so folder lookup (`listfolder`) fails with result 2005 if
+/// the stored path uses composed (NFC) accents. Normalize everywhere a path is
+/// read or written so all comparisons and lookups are consistent.
+fn nfd(path: &str) -> String {
+    path.nfd().collect()
+}
+
 #[derive(Args)]
 pub struct FoldersArgs {
     /// Path to config.toml listing base folders to scan
@@ -272,9 +281,11 @@ fn read_folders(config: &Path) -> Result<Vec<String>> {
     let cfg: Config = toml::from_str(&raw).context("failed to parse config.toml")?;
     let mut folders = Vec::new();
     for f in cfg.folders {
-        let t = f.trim();
+        // Normalize to NFD so lookups against pCloud always match its
+        // decomposed names regardless of how the path was written to config.
+        let t = nfd(&f).trim().to_string();
         if !t.is_empty() {
-            folders.push(t.to_string());
+            folders.push(t);
         }
     }
     Ok(folders)
@@ -297,7 +308,9 @@ pub fn folders(args: FoldersArgs) -> Result<()> {
 
 /// Add a folder to the config. Returns true if newly added, false if already present.
 fn add_folder(config: &Path, path: &str) -> Result<bool> {
-    let path = path.trim();
+    // Normalize to NFD up front so an NFC-typed path exactly matches the
+    // decomposed form already stored (and what pCloud expects).
+    let path = nfd(path).trim().to_string();
     if path.is_empty() {
         bail!("folder path must not be empty");
     }
@@ -306,15 +319,15 @@ fn add_folder(config: &Path, path: &str) -> Result<bool> {
     } else {
         Vec::new()
     };
-    if folders.iter().any(|f| f == path) {
+    if folders.contains(&path) {
         println!("already present: {path}");
         return Ok(false);
     }
-    folders.push(path.to_string());
+    println!("added: {path}");
+    folders.push(path);
     let cfg = Config { folders };
     std::fs::write(config, toml::to_string(&cfg)?)
         .with_context(|| format!("failed to write config {}", config.display()))?;
-    println!("added: {path}");
     Ok(true)
 }
 
@@ -578,6 +591,29 @@ mod tests {
         add_folder(&cfg, "FOTKY/A").unwrap(); // duplicate -> no change
 
         assert_eq!(read_folders(&cfg).unwrap(), vec!["FOTKY/A", "FOTKY/B"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn add_normalizes_nfc_to_nfd_and_dedupes() {
+        let dir = std::env::temp_dir().join(format!("folders-nfd-test-{}", std::process::id()));
+        let cfg = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Composed (NFC) "digitál" is added first; "KONCERTY, PŘEDSTAVENÍ/Rodinné"
+        // contains composed/capital accented chars too.
+        let nfc = "/FOTKY/FOTKY - digitál/KONCERTY, PŘEDSTAVENÍ/Rodinné";
+        add_folder(&cfg, nfc).unwrap();
+
+        // The decomposed (NFD) equivalent must be treated as the SAME folder.
+        let nfd = nfd(nfc);
+        assert_ne!(nfc, nfd, "expected NFC input to differ from its NFD form");
+        assert_eq!(add_folder(&cfg, &nfd).unwrap(), false);
+
+        // One entry, stored as NFD.
+        let folders = read_folders(&cfg).unwrap();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0], nfd);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
