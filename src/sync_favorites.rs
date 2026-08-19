@@ -1,7 +1,7 @@
 use crate::client::ImmichClient;
 use anyhow::Result;
 use clap::Args;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 #[derive(Args)]
@@ -17,15 +17,41 @@ pub struct SyncArgs {
     /// Directory to sync favorites into
     #[arg(long, env = "FAVORITES_DIR")]
     dir: PathBuf,
+
+    /// Re-run the sync on this interval (e.g. "6h"); unset = run once and exit
+    #[arg(long, env = "SYNC_INTERVAL")]
+    interval: Option<String>,
 }
 
 pub async fn run(args: SyncArgs) -> Result<()> {
-    let client = ImmichClient::new(args.url, args.api_key)?;
+    let SyncArgs {
+        url,
+        api_key,
+        dir,
+        interval,
+    } = args;
+    let client = ImmichClient::new(url, api_key)?;
+    let interval = match interval.as_deref() {
+        Some(s) => Some(humantime::parse_duration(s)?),
+        None => None,
+    };
+
+    loop {
+        sync_once(&client, &dir).await?;
+        match interval {
+            Some(d) => tokio::time::sleep(d).await,
+            None => break,
+        }
+    }
+    Ok(())
+}
+
+async fn sync_once(client: &ImmichClient, dir: &Path) -> Result<()> {
     let mut page = 1u32;
     let mut synced = 0u32;
     let mut skipped = 0u32;
 
-    info!("Starting favorites sync into {}", args.dir.display());
+    info!("Starting favorites sync into {}", dir.display());
 
     loop {
         let results = client.search_favorites(page).await?;
@@ -36,7 +62,7 @@ pub async fn run(args: SyncArgs) -> Result<()> {
         }
 
         for asset in &items {
-            let dest = args.dir.join(&asset.original_file_name);
+            let dest = dir.join(&asset.original_file_name);
             if dest.exists() {
                 skipped += 1;
                 continue;
@@ -55,6 +81,6 @@ pub async fn run(args: SyncArgs) -> Result<()> {
         }
     }
 
-    info!("Done — {synced} downloaded, {skipped} skipped");
+    info!("Done - {synced} downloaded, {skipped} skipped");
     Ok(())
 }
