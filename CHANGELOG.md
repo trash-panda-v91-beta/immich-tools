@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.3.0...v0.3.1) (2026-08-20)
+
+
+### Features
+
+* **pcloud:** tag uploaded assets with folder ([#54](https://github.com/trash-panda-v91-beta/immich-tools/issues/54)) ([0ed8a55](https://github.com/trash-panda-v91-beta/immich-tools/commit/0ed8a5527b7416c23870b3d2bbb8236904b91db5))
+
+
+### Bug Fixes
+
+* **pcloud:** per-file timeout, retries and progress logging ([#52](https://github.com/trash-panda-v91-beta/immich-tools/issues/52)) ([00998bd](https://github.com/trash-panda-v91-beta/immich-tools/commit/00998bd048973fa99d4cb6a5c9e0f824cda4099d))
+
 ## [0.3.0](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.4...v0.3.0) (2026-08-20)
 
 
