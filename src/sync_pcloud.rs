@@ -18,10 +18,14 @@ use sha1::{Digest, Sha1};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 use unicode_normalization::UnicodeNormalization;
+
+/// Maximum attempts (including the first) for each file before giving up.
+const MAX_ATTEMPTS: u32 = 3;
 
 #[derive(Args)]
 pub struct PCloudArgs {
@@ -195,6 +199,7 @@ struct FolderState {
     files: BTreeMap<u64, FileEntry>,
 }
 
+#[derive(Debug)]
 enum Outcome {
     Skipped,
     Uploaded,
@@ -397,28 +402,54 @@ async fn sync_folder(args: &PCloudArgs, path: &str) -> Result<(u32, u32)> {
                 }
 
                 let tmp = tmp_dir.join(format!("immich-pcloud-{}.tmp", f.id));
-                let result = (async {
-                    let (size, checksum) = pcloud.download_and_hash(f.id, &tmp).await?;
-                    immich
-                        .upload_asset_file(
-                            &f.name,
-                            &format!("pcloud-{}", f.id),
-                            &tmp,
-                            size,
-                            &checksum,
-                        )
-                        .await
-                })
-                .await;
-                let outcome = match result {
-                    Ok(Some(_)) => Outcome::Uploaded,
-                    Ok(None) => Outcome::Duplicate,
-                    Err(e) => {
-                        warn!("failed to process {}: {e:#}", f.name);
-                        Outcome::Failed
+                // Retry each file a bounded number of times, with a per-attempt
+                // timeout, so a transient stall fails that file (and is retried)
+                // instead of hanging the whole sync. Files still failing stay out
+                // of the ledger and are picked up on a later run.
+                let mut last_err: Option<String> = None;
+                let mut outcome = Outcome::Failed;
+                for attempt in 1..=MAX_ATTEMPTS {
+                    let result = tokio::time::timeout(Duration::from_secs(900), async {
+                        let (size, checksum) = pcloud.download_and_hash(f.id, &tmp).await?;
+                        immich
+                            .upload_asset_file(
+                                &f.name,
+                                &format!("pcloud-{}", f.id),
+                                &tmp,
+                                size,
+                                &checksum,
+                            )
+                            .await
+                    })
+                    .await;
+
+                    let _ = tokio::fs::remove_file(&tmp).await;
+                    match result {
+                        Ok(Ok(Some(_))) => {
+                            outcome = Outcome::Uploaded;
+                            break;
+                        }
+                        Ok(Ok(None)) => {
+                            outcome = Outcome::Duplicate;
+                            break;
+                        }
+                        Ok(Err(e)) => {
+                            last_err = Some(format!("{e:#}"));
+                            warn!("failed to process {} (attempt {attempt}): {e:#}", f.name);
+                        }
+                        Err(_) => {
+                            last_err = Some("timed out (>900s)".into());
+                            warn!("timed out processing {} (attempt {attempt})", f.name);
+                        }
                     }
-                };
-                let _ = tokio::fs::remove_file(&tmp).await;
+                }
+                if matches!(outcome, Outcome::Failed) {
+                    if let Some(e) = last_err {
+                        warn!("giving up on {} after {MAX_ATTEMPTS} attempts: {e}", f.name);
+                    }
+                } else {
+                    info!("processed {}: {:?}", f.name, outcome);
+                }
                 (f, outcome)
             }
         })
