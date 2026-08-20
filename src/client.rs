@@ -159,4 +159,64 @@ impl ImmichClient {
             .to_string();
         Ok(Some(id))
     }
+
+    /// Ensure a tag named `name` (value `value`) exists and return its id.
+    /// Creates it on first use; on a name conflict it finds the existing tag.
+    pub async fn ensure_tag(&self, name: &str, value: &str) -> Result<String> {
+        let create = self
+            .client
+            .post(format!("{}/api/tags", self.base_url))
+            .header("x-api-key", &self.api_key)
+            .json(&serde_json::json!({ "name": name, "value": value }))
+            .send()
+            .await
+            .context("create tag request failed")?;
+
+        match create.status() {
+            StatusCode::CREATED | StatusCode::OK => {
+                let b: serde_json::Value = create
+                    .json()
+                    .await
+                    .context("failed to parse create-tag response")?;
+                b["id"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .context("create-tag response missing id")
+            }
+            StatusCode::CONFLICT => {
+                // name already exists - find it by name
+                let tags = self
+                    .client
+                    .get(format!("{}/api/tags", self.base_url))
+                    .header("x-api-key", &self.api_key)
+                    .send()
+                    .await
+                    .context("list tags request failed")?
+                    .error_for_status()
+                    .context("list tags returned error status")?
+                    .json::<serde_json::Value>()
+                    .await
+                    .context("failed to parse tags response")?;
+                tags.as_array()
+                    .and_then(|arr| arr.iter().find(|t| t["name"].as_str() == Some(name)))
+                    .and_then(|t| t["id"].as_str().map(str::to_owned))
+                    .context("existing tag not found by name")
+            }
+            other => Err(anyhow::anyhow!("create tag returned status {other}")),
+        }
+    }
+
+    /// Assign a tag to an asset (idempotent).
+    pub async fn tag_asset(&self, tag_id: &str, asset_id: &str) -> Result<()> {
+        self.client
+            .put(format!("{}/api/tags/{tag_id}/assets", self.base_url))
+            .header("x-api-key", &self.api_key)
+            .json(&serde_json::json!({ "assetIds": [asset_id] }))
+            .send()
+            .await
+            .context("tag asset request failed")?
+            .error_for_status()
+            .context("tag asset returned error status")
+            .map(|_| ())
+    }
 }

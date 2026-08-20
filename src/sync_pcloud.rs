@@ -49,6 +49,10 @@ pub struct PCloudArgs {
     #[arg(long, env = "FOLDER")]
     folder: Option<String>,
 
+    /// Custom tag suffix for uploaded assets (defaults to the folder path)
+    #[arg(long, env = "TAG")]
+    tag: Option<String>,
+
     /// Directory that stores per-folder JSON ledgers of processed files
     #[arg(long, env = "STATE_DIR")]
     state_dir: PathBuf,
@@ -262,6 +266,9 @@ struct Shared {
 #[derive(Deserialize)]
 struct SyncBody {
     path: String,
+    /// Optional tag name suffix; defaults to the folder path when omitted.
+    #[serde(default)]
+    tag: Option<String>,
 }
 
 async fn handle_sync(
@@ -269,7 +276,7 @@ async fn handle_sync(
     Json(body): Json<SyncBody>,
 ) -> Result<Json<Value>, StatusCode> {
     let _guard = state.lock.lock().await;
-    match sync_folder(&state.args, &body.path).await {
+    match sync_folder(&state.args, &body.path, body.tag.as_deref()).await {
         Ok((uploaded, skipped)) => Ok(Json(json!({ "uploaded": uploaded, "skipped": skipped }))),
         Err(e) => {
             warn!("sync failed: {e:#}");
@@ -359,11 +366,15 @@ pub async fn run(args: PCloudArgs) -> Result<()> {
         .folder
         .as_deref()
         .context("a folder path is required: pass --folder <path>")?;
-    sync_folder(&args, path).await.map(|_| ())
+    sync_folder(&args, path, args.tag.as_deref())
+        .await
+        .map(|_| ())
 }
 
-/// Sync a single pCloud folder to Immich.
-async fn sync_folder(args: &PCloudArgs, path: &str) -> Result<(u32, u32)> {
+/// Sync a single pCloud folder to Immich. Newly uploaded assets are tagged with
+/// `immich-tools` and `{tag}` where `tag` defaults to the folder path when no
+/// custom tag is given.
+async fn sync_folder(args: &PCloudArgs, path: &str, tag: Option<&str>) -> Result<(u32, u32)> {
     // Normalize to NFD so pCloud listfolder matches its decomposed names.
     let path = nfd(path).trim().to_string();
     if path.is_empty() {
@@ -389,6 +400,13 @@ async fn sync_folder(args: &PCloudArgs, path: &str) -> Result<(u32, u32)> {
     let mut files = Vec::new();
     collect_files(&folder, &mut files);
 
+    // Two tags on every uploaded asset: the constant "immich-tools" and a
+    // per-folder "{tag}" where `tag` defaults to the folder path.
+    let custom = tag.unwrap_or(&path);
+    let base_tag = immich.ensure_tag("immich-tools", &path).await?;
+    let folder_tag = immich.ensure_tag(custom, &path).await?;
+    let tags: Vec<String> = vec![base_tag, folder_tag];
+
     let tmp_dir = std::env::temp_dir();
     let outcomes: Vec<(FileRef, Outcome)> = stream::iter(files)
         .map(|f| {
@@ -396,6 +414,7 @@ async fn sync_folder(args: &PCloudArgs, path: &str) -> Result<(u32, u32)> {
             let immich = &immich;
             let folder_state = &folder_state;
             let tmp_dir = &tmp_dir;
+            let tags = &tags;
             async move {
                 if folder_state.files.get(&f.id).map(|e| e.hash) == Some(f.hash) {
                     return (f, Outcome::Skipped);
@@ -425,7 +444,13 @@ async fn sync_folder(args: &PCloudArgs, path: &str) -> Result<(u32, u32)> {
 
                     let _ = tokio::fs::remove_file(&tmp).await;
                     match result {
-                        Ok(Ok(Some(_))) => {
+                        Ok(Ok(Some(asset_id))) => {
+                            // Tag the freshly uploaded asset; tagging is idempotent.
+                            for tag_id in tags {
+                                if let Err(e) = immich.tag_asset(tag_id, &asset_id).await {
+                                    warn!("failed to tag {} with {tag_id}: {e:#}", f.name);
+                                }
+                            }
                             outcome = Outcome::Uploaded;
                             break;
                         }
