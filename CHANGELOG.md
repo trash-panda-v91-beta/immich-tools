@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.4...v0.3.0) (2026-08-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deps:** Update toml ( 0.9.12+spec-1.1.0 ➔ 1.1.4 ) ([#49](https://github.com/trash-panda-v91-beta/immich-tools/issues/49))
+* **deps:** Update cargo ([#35](https://github.com/trash-panda-v91-beta/immich-tools/issues/35))
+
+### Features
+
+* **deps:** Update cargo ([#35](https://github.com/trash-panda-v91-beta/immich-tools/issues/35)) ([2b888d3](https://github.com/trash-panda-v91-beta/immich-tools/commit/2b888d335c431c267e840da1e55689a506701567))
+* **deps:** update mise tools ([#20](https://github.com/trash-panda-v91-beta/immich-tools/issues/20)) ([2320aff](https://github.com/trash-panda-v91-beta/immich-tools/commit/2320aff09a8d4e4692823479d6289db8a7e85bb4))
+* **deps:** Update toml ( 0.9.12+spec-1.1.0 ➔ 1.1.4 ) ([#49](https://github.com/trash-panda-v91-beta/immich-tools/issues/49)) ([aa39cf5](https://github.com/trash-panda-v91-beta/immich-tools/commit/aa39cf5d520327c7922d91bd32bddca61c5d8abc))
+* **pcloud:** drop config file, sync folder per request ([#48](https://github.com/trash-panda-v91-beta/immich-tools/issues/48)) ([73575ed](https://github.com/trash-panda-v91-beta/immich-tools/commit/73575ed4d6c97ddd06f011b16d056f2719b8f545))
+
+
+### Bug Fixes
+
+* **pcloud:** normalize folder paths to NFD ([#47](https://github.com/trash-panda-v91-beta/immich-tools/issues/47)) ([86974ee](https://github.com/trash-panda-v91-beta/immich-tools/commit/86974ee33fde2c786f6349dd72177b49a9cccec2))
+
 ## [0.2.4](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.2.3...v0.2.4) (2026-08-19)
 
 
