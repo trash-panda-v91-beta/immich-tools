@@ -18,6 +18,7 @@ use sha1::{Digest, Sha1};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -112,6 +113,8 @@ struct PCloud {
 impl PCloud {
     fn new(token: String, host: String) -> Result<Self> {
         let http = HttpClient::builder()
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(900))
             .build()
             .context("failed to build pCloud client")?;
         Ok(Self { http, token, host })
