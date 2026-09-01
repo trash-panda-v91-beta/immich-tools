@@ -402,10 +402,17 @@ async fn sync_folder(args: &PCloudArgs, path: &str, tag: Option<&str>) -> Result
 
     // Two tags on every uploaded asset: the constant "immich-tools" and a
     // per-folder "{tag}" where `tag` defaults to the folder path.
+    // Tagging is best-effort: if tag creation fails (e.g. the Immich API key
+    // lacks tag permission), warn and upload untagged rather than aborting.
+    let mut tags: Vec<String> = Vec::new();
     let custom = tag.unwrap_or(&path);
-    let base_tag = immich.ensure_tag("immich-tools", &path).await?;
-    let folder_tag = immich.ensure_tag(custom, &path).await?;
-    let tags: Vec<String> = vec![base_tag, folder_tag];
+    match (
+        immich.ensure_tag("immich-tools", &path).await,
+        immich.ensure_tag(custom, &path).await,
+    ) {
+        (Ok(base), Ok(folder)) => tags.extend([base, folder]),
+        (Err(e), _) | (_, Err(e)) => warn!("tagging disabled: {e}"),
+    }
 
     let tmp_dir = std::env::temp_dir();
     let outcomes: Vec<(FileRef, Outcome)> = stream::iter(files)
