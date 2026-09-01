@@ -160,50 +160,29 @@ impl ImmichClient {
         Ok(Some(id))
     }
 
-    /// Ensure a tag named `name` (value `value`) exists and return its id.
-    /// Creates it on first use; on a name conflict it finds the existing tag.
-    pub async fn ensure_tag(&self, name: &str, value: &str) -> Result<String> {
-        let create = self
+    /// Ensure a tag named `name` (which may be a slash-separated hierarchy
+    /// like "FOTKY/RODINA/nábor") exists, and return the leaf tag's id.
+    /// Uses Immich's upsert endpoint, which splits on "/" and creates the
+    /// full parent/child chain; idempotent.
+    pub async fn ensure_tag(&self, name: &str) -> Result<String> {
+        let resp = self
             .client
-            .post(format!("{}/api/tags", self.base_url))
+            .put(format!("{}/api/tags", self.base_url))
             .header("x-api-key", &self.api_key)
-            .json(&serde_json::json!({ "name": name, "value": value }))
+            .json(&serde_json::json!({ "tags": [name] }))
             .send()
             .await
-            .context("create tag request failed")?;
+            .context("upsert tag request failed")?
+            .error_for_status()
+            .context("upsert tags returned error status")?
+            .json::<serde_json::Value>()
+            .await
+            .context("failed to parse upsert-tags response")?;
 
-        match create.status() {
-            StatusCode::CREATED | StatusCode::OK => {
-                let b: serde_json::Value = create
-                    .json()
-                    .await
-                    .context("failed to parse create-tag response")?;
-                b["id"]
-                    .as_str()
-                    .map(str::to_owned)
-                    .context("create-tag response missing id")
-            }
-            StatusCode::CONFLICT => {
-                // name already exists - find it by name
-                let tags = self
-                    .client
-                    .get(format!("{}/api/tags", self.base_url))
-                    .header("x-api-key", &self.api_key)
-                    .send()
-                    .await
-                    .context("list tags request failed")?
-                    .error_for_status()
-                    .context("list tags returned error status")?
-                    .json::<serde_json::Value>()
-                    .await
-                    .context("failed to parse tags response")?;
-                tags.as_array()
-                    .and_then(|arr| arr.iter().find(|t| t["name"].as_str() == Some(name)))
-                    .and_then(|t| t["id"].as_str().map(str::to_owned))
-                    .context("existing tag not found by name")
-            }
-            other => Err(anyhow::anyhow!("create tag returned status {other}")),
-        }
+        resp.as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|t| t["id"].as_str().map(str::to_owned))
+            .context("upsert-tags response missing id")
     }
 
     /// Assign a tag to an asset (idempotent).
