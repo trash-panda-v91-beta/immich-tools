@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.3.1...v0.3.2) (2026-09-05)
+
+
+### Bug Fixes
+
+* **deps:** update toml ( 1.1.4+spec-1.1.0 ➔ 1.1.5 ) ([#56](https://github.com/trash-panda-v91-beta/immich-tools/issues/56)) ([c2bd263](https://github.com/trash-panda-v91-beta/immich-tools/commit/c2bd26370d1429c8ada58b415592e39c9e587ce5))
+
 ## [0.3.1](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.3.0...v0.3.1) (2026-08-20)
 
 
