@@ -160,14 +160,14 @@ impl ImmichClient {
         Ok(Some(id))
     }
 
-    /// Ensure a tag named `name` (value `value`) exists and return its id.
+    /// Ensure a tag named `name` exists and return its id.
     /// Creates it on first use; on a name conflict it finds the existing tag.
-    pub async fn ensure_tag(&self, name: &str, value: &str) -> Result<String> {
+    pub async fn ensure_tag(&self, name: &str) -> Result<String> {
         let create = self
             .client
             .post(format!("{}/api/tags", self.base_url))
             .header("x-api-key", &self.api_key)
-            .json(&serde_json::json!({ "name": name, "value": value }))
+            .json(&serde_json::json!({ "name": name }))
             .send()
             .await
             .context("create tag request failed")?;
