@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.4.0...v0.4.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **pcloud:** best-effort tagging + correct create-tag payload ([#61](https://github.com/trash-panda-v91-beta/immich-tools/issues/61)) ([179c591](https://github.com/trash-panda-v91-beta/immich-tools/commit/179c591f3c0bc03709bbe1c77265d606e1d5d321))
+
 ## [0.4.0](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.3.1...v0.4.0) (2026-09-18)
 
 
