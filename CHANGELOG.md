@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.4.1...v0.5.0) (2026-10-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **github-action:** Update jdx/mise-action ( v4.3.0 ➔ v5.0.1 ) ([#66](https://github.com/trash-panda-v91-beta/immich-tools/issues/66))
+
+### Features
+
+* **deps:** update mise tools ([#65](https://github.com/trash-panda-v91-beta/immich-tools/issues/65)) ([f918595](https://github.com/trash-panda-v91-beta/immich-tools/commit/f9185957fe24f5fff6f7dce1174ef80b49a8921f))
+
+
+### Bug Fixes
+
+* **deps:** update tokio ( 1.53.1 ➔ 1.53.2 ) ([#69](https://github.com/trash-panda-v91-beta/immich-tools/issues/69)) ([cd320a4](https://github.com/trash-panda-v91-beta/immich-tools/commit/cd320a47f25ee489ad7ed4b5d594f81fbcc17c79))
+
+
+### Continuous Integration
+
+* **github-action:** Update jdx/mise-action ( v4.3.0 ➔ v5.0.1 ) ([#66](https://github.com/trash-panda-v91-beta/immich-tools/issues/66)) ([d5061ae](https://github.com/trash-panda-v91-beta/immich-tools/commit/d5061aeca5d52ba0ece032570ea38dc8e5a8a245))
+
 ## [0.4.1](https://github.com/trash-panda-v91-beta/immich-tools/compare/v0.4.0...v0.4.1) (2026-09-24)
 
 
