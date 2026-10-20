@@ -1,13 +1,15 @@
 {
 	"packages": {
 		".": {
-			"package-name": "immich-tools",
+			"package-name": ".",
 			"release-type": "rust"
 		}
 	},
 	"bump-minor-pre-major": true,
 	"bump-patch-for-minor-pre-major": true,
 	"changelog-path": "CHANGELOG.md",
+	"pull-request-header": "",
+	"pull-request-footer": "\n*Presented by* 🦝",
 	"pull-request-title-pattern": "release: v${version}",
 	"changelog-type": "default",
 	"changelog-sections": [
@@ -22,6 +24,8 @@
 		{ "type": "ci", "section": "Continuous Integration", "hidden": false },
 		{ "type": "chore", "section": "Miscellaneous Chores", "hidden": true }
 	],
+	"label": "status/release-pending",
+	"release-label": "status/released",
 	"include-v-in-tag": true,
 	"include-component-in-tag": false
 }
