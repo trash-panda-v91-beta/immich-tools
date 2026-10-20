@@ -1,7 +1,7 @@
 {
 	"packages": {
 		".": {
-			"package-name": ".",
+			"package-name": "immich-tools",
 			"release-type": "rust"
 		}
 	},
