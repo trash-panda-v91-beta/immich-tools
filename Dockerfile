@@ -11,5 +11,6 @@ RUN cargo build --release
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-COPY --from=builder /build/target/release/immich-tools /immich-tools
-ENTRYPOINT ["/immich-tools"]
+COPY --from=builder /build/target/release/. /.
+ENTRYPOINT ["/."]
+CMD ["serve"]

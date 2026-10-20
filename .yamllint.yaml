@@ -1,6 +1,5 @@
 ---
 extends: default
-
 rules:
   brackets:
     max-spaces-inside: 1
@@ -8,7 +7,6 @@ rules:
   comments:
     require-starting-space: true
     min-spaces-from-content: 1
-  document-start: disable
   indentation:
     spaces: consistent
     indent-sequences: consistent
